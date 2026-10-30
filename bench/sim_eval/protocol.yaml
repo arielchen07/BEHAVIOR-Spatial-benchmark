@@ -1,0 +1,63 @@
+# Canonical sim-eval protocol: the settings behind every sim number in the paper.
+# run_eval.py applies these per instance group; do not change them when reporting
+# results on the benchmark. Environment variables you export yourself still win
+# (useful for ablations), and run_eval.py prints every value it applies.
+#
+# Matching is on fields of the instance config JSON:
+#   test_task  -> "test_task_name"     (e.g. reach_plate, place_carving_knife)
+#   task_type  -> "task_type"          ("nav" for move_to tasks)
+# A pattern is an fnmatch glob or a list of globs.
+
+# Rollout budget (env steps) for manipulation tasks, as used for every result in
+# the paper. Success rates depend on the budget, so results are only comparable
+# under these values. Navigation tasks use the `max_steps` stored in each instance
+# config.
+max_steps:
+  default: 7000
+  per_test_task:
+    reach_plate: 3000
+    reach_item: 3000
+    reach_hardback_from_bookcase: 3000
+    reach_food_item: 3000
+    place_carving_knife: 3000
+    place_saucer: 3000
+    reach_tool: 3700
+    reach_pizza_plate: 4500
+    reach_paperback_book_aug: 4500
+    reach_dice: 4500
+    reach_toys: 5000
+
+# Per-group settings. Every matching rule contributes; for a variable set by more
+# than one rule, the first rule listed wins.
+rules:
+  - name: augmented-scene settle
+    # Warm the controllers for 150 steps before the first policy action; without it
+    # the cold-start controller transient shakes most episodes.
+    match: {test_task: "*_aug*"}
+    env: {PRE_POLICY_SETTLE_STEPS: "150"}
+
+  - name: place-task grasp
+    # Place tasks start with the object in hand. The initial-state file restores the
+    # pose but not the assisted-grasp constraint, so re-establish it at init.
+    match: {test_task: "place_*"}
+    env: {FORCE_GRASP_IN_HAND: "1", FORCE_GRASP_TELEPORT: "1"}
+
+  - name: fridge door
+    # Training demos have the fridge's right door open; open it to match.
+    match: {test_task: ["*fridge*", "*refrigerator*"]}
+    env:
+      OPEN_DOOR_CATEGORIES: "fridge,electric_refrigerator"
+      OPEN_DOOR_JOINT_NAMES: "j_right_door"
+
+  - name: target-only dwell
+    # Only a dwell on the instructed target (not on a distractor) ends the episode
+    # early for these two tasks.
+    match: {test_task: ["reach_soda_can", "reach_storage_box"]}
+    env: {REACH_DWELL_TARGET_ONLY: "1"}
+
+  - name: navigation
+    # Separate script without the manipulation pin-hold loop (it ejects carried
+    # objects). It has no pre-policy settle; the policy starts after a few
+    # render-only warm-up frames, as in every navigation result in the paper.
+    match: {task_type: "nav"}
+    script: eval_subtask_nav.py
